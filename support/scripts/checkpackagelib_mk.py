@@ -5,4 +5,7 @@
 # packages enabled.
 
 # Notice: ignore 'imported but unused' from pyflakes for check functions.
+from checkpackagelib import check_consecutive_empty_lines
+from checkpackagelib import check_empty_last_line
 from checkpackagelib import check_newline_at_eof
+from checkpackagelib import check_trailing_space
