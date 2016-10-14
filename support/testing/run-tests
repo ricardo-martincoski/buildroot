@@ -5,6 +5,8 @@ import argparse
 import sys
 import os
 import string
+import inspect
+import importlib
 from core.basetest import BRTest
 
 parser = argparse.ArgumentParser(description='Run Buildroot tests')
@@ -36,7 +38,14 @@ if args.list:
                 continue
             if f == '__init__.py':
                 continue
-            print "  %s.%s" % (string.replace(root, "/", "."), os.path.splitext(f)[0])
+            module = "%s.%s" % (string.replace(root, "/", "."), os.path.splitext(f)[0])
+            # Import the test module
+            importlib.import_module(module)
+            # Find its classes
+            for name, obj in inspect.getmembers(sys.modules[module], inspect.isclass):
+                # The ones that have a "test_run" function are valid test cases
+                if "test_run" in dir(obj):
+                    print " - %s.%s" % (module, name)
     sys.exit(0)
 
 if args.download is None:
