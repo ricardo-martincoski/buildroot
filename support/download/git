@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Please test this script using test/support/download/git
 
 # We want to catch any unexpected failure, and exit immediately
 set -e
