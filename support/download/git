@@ -39,43 +39,73 @@ _git() {
     eval ${GIT} "${@}"
 }
 
-# Try a shallow clone, since it is faster than a full clone - but that only
-# works if the version is a ref (tag or branch). Before trying to do a shallow
-# clone we check if ${cset} is in the list provided by git ls-remote. If not
-# we fall back on a full clone.
-#
-# Messages for the type of clone used are provided to ease debugging in case of
-# problems
-git_done=0
-if [ -n "$(_git ls-remote "'${repo}'" "'${cset}'" 2>&1)" ]; then
-    printf "Doing shallow clone\n"
-    if _git clone ${verbose} "${@}" --depth 1 -b "'${cset}'" "'${repo}'" "'${basename}'"; then
-        git_done=1
-    else
-        printf "Shallow clone failed, falling back to doing a full clone\n"
-    fi
-fi
-if [ ${git_done} -eq 0 ]; then
-    printf "Doing full clone\n"
-    _git clone ${verbose} "${@}" "'${repo}'" "'${basename}'"
-fi
+_git init ${verbose} "'${basename}'"
 
 pushd "${basename}" >/dev/null
 
-# Try to get the special refs exposed by some forges (pull-requests for
-# github, changes for gerrit...). There is no easy way to know whether
-# the cset the user passed us is such a special ref or a tag or a sha1
-# or whatever else. We'll eventually fail at checking out that cset,
-# below, if there is an issue anyway. Since most of the cset we're gonna
-# have to clone are not such special refs, consign the output to oblivion
-# so as not to alarm unsuspecting users, but still trace it as a warning.
-if ! _git fetch origin "'${cset}:${cset}'" >/dev/null 2>&1; then
-    printf "Could not fetch special ref '%s'; assuming it is not special.\n" "${cset}"
-fi
+# Save temporary files inside the .git directory that will be deleted after the
+# checkout is done.
+a_r=".git/all_refs"
+c_r=".git/candidate_refs"
+m_r=".git/matching_refs"
 
-# Checkout the required changeset, so that we can update the required
-# submodules.
-_git checkout -q "'${cset}'"
+# Ask the server the list of all refs that can use the most optimized download
+# (git fetch --depth 1). In the case the remote gets updated between this
+# command and the git fetch, fall back to a full fetch.
+_git ls-remote "'${repo}'" >${a_r}
+
+# Do a strict filtering before hand, so we can use less strict checking to
+# determine a cset can use the optimized download. This way, refs with funny
+# names (e.g. 'bra{2}nch', 'tag$$') will simply fall back to a full fetch.
+if grep -F "${cset}" ${a_r} >${c_r} 2>/dev/null; then
+    if grep -E "\<(|(|refs/)(heads|tags)/)${cset}$" ${c_r} >${m_r} 2>/dev/null; then
+        # Support branches and tags in the simplified form.
+        # Support branches and tags and special refs in the form refs/tags/tag.
+        # NOTE: When using an ancient git client, the fetch of a tag in the
+        # simplified form fails and would fall back to a full fetch. Git version
+        # 1.7.1 (RHEL6) fails, 1.8.2.3 (RHEL5+EPEL) succeeds. Instead of using
+        # the received ${cset} as ref, always use the complete form.
+        # When the name is ambiguous (there is a branch and a tag with the same
+        # name), the branch is selected. This way we behave like git fetch, git
+        # clone and git checkout. To accomplish this we use the first match
+        # because output of git ls-remote is already sorted by ref.
+        ref="$(cut -f 2 ${m_r} | head -1)"
+    fi
+fi
+git_done=0
+if [ "${ref}" ]; then
+    printf "Doing shallow fetch, using '%s' to get '%s'\n" "${ref}" "${cset}"
+    # Because ${ref} is always in the complete form we don't need to create a
+    # separate namespace (i.e. refs/buildroot/) and just use the ref as is.
+    if _git fetch -u ${verbose} "${@}" --depth 1 "'${repo}'" \
+                  "'+${ref}:${ref}'" 2>&1; then
+        unshallow=--unshallow
+        if _git checkout -q "'${cset}'" 2>&1; then
+            git_done=1
+        else
+            printf "Checkout failed, falling back to doing a full fetch\n"
+        fi
+    else
+        # It catches the case the remote supports only dumb http transport.
+        # It catches the case the remote removed the ref after git ls-remote.
+        printf "Shallow fetch failed, falling back to doing a full fetch\n"
+    fi
+fi
+if [ ${git_done} -eq 0 ]; then
+    printf "Doing full fetch\n"
+    # Fetch all branch and tag refs. The same as git clone.
+    _git fetch -u ${verbose} "${@}" ${unshallow} "'${repo}'" \
+               "'+refs/tags/*:refs/tags/*'" "'+refs/heads/*:refs/heads/*'"
+    if _git checkout -q "'${cset}'" 2>&1; then
+        git_done=1
+    fi
+fi
+if [ ${git_done} -eq 0 ]; then
+    printf "Doing mirror fetch\n"
+    # Fetch all refs, including special refs. The same as git clone --mirror.
+    _git fetch -u ${verbose} "${@}" ${unshallow} "'${repo}'" "'+refs/*:refs/*'"
+    _git checkout -q "'${cset}'"
+fi
 
 # Get date of commit to generate a reproducible archive.
 # %cD is RFC2822, so it's fully qualified, with TZ and all.
