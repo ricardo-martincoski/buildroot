@@ -85,6 +85,12 @@ if [ ${recurse} -eq 1 ]; then
     _git submodule update --init --recursive
 fi
 
+# Log the sha1. It can be used for automated tests and debug.
+if [ -z ${verbose} ]; then
+    sha1=$(_git rev-parse HEAD)
+    printf "Checked out '%s'.\n" "${sha1}"
+fi
+
 # We do not need the .git dir; we keep other .git files, in case they
 # are the only files in their directory.
 rm -rf .git
