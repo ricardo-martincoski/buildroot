@@ -105,6 +105,26 @@ if [ "${ref}" ]; then
         printf "Shallow fetch failed, falling back to doing a full fetch\n"
     fi
 fi
+if [ ${git_done} -eq 0 -a ${#cset} -eq 40 ]; then
+    printf "Doing shallow fetch of all branches\n"
+    # When the version of a package is following a branch it is usual to use
+    # the sha1 instead of the branch name in order to assure reproducible
+    # builds. When a new commit is added to the branch in the upstream, the
+    # selected version is not anymore in the branch head, leading to a full
+    # fetch.
+    # As a middle ground between a --depth 1 fetch and a full fetch, fetch all
+    # branches with depth of 100. We have a good change to catch the desired
+    # version and it makes difference when fetching from large repos.
+    # Check the fetch is successful for the case the remote does not support
+    # smart http transport.
+    if _git fetch -u ${verbose} "${@}" --depth 100 "'${repo}'" \
+                  "'+refs/heads/*:refs/heads/*'" 2>&1; then
+        unshallow=--unshallow
+        if _git checkout -q "'${cset}'" 2>&1; then
+            git_done=1
+        fi
+    fi
+fi
 if [ ${git_done} -eq 0 ]; then
     printf "Doing full fetch\n"
     # Fetch all branch and tag refs. The same as git clone.
