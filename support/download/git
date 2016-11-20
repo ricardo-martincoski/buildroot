@@ -70,6 +70,18 @@ if grep -F "${cset}" ${a_r} >${c_r} 2>/dev/null; then
         # clone and git checkout. To accomplish this we use the first match
         # because output of git ls-remote is already sorted by ref.
         ref="$(cut -f 2 ${m_r} | head -1)"
+    elif grep "^${cset}\>" ${c_r} >${m_r} 2>/dev/null; then
+        # Support sha1 of branch head and commit pointed by tag (annotated or
+        # not) and sha1 of special refs head.
+        # Do not support partial sha1 because it is possible it is unambiguous
+        # in the subset of ls-remote but ambiguous in the full set of all sha1.
+        # A sha1 can be referenced by many names. Any reference can be used but
+        # avoid using HEAD if possible because it is the most volatile one.
+        # HEAD appears at the begin of ls-remote, so use the last match.
+        ref="$(cut -f 2 ${m_r} | tail -1)"
+        # The ref of the sha1 pointed by an annotated tag ends with tag^{} in
+        # the output of git ls-remote but we want the name of the tag to fetch.
+        ref=${ref/%"^{}"}
     fi
 fi
 git_done=0
@@ -83,6 +95,8 @@ if [ "${ref}" ]; then
         if _git checkout -q "'${cset}'" 2>&1; then
             git_done=1
         else
+            # It catches the case we want a sha1 but the remote changed the ref
+            # after git ls-remote.
             printf "Checkout failed, falling back to doing a full fetch\n"
         fi
     else
