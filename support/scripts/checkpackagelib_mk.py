@@ -141,6 +141,50 @@ def check_trailing_backslash(
                 check_trailing_backslash.lastline]
 
 
+ALLOWED = re.compile("|".join([
+    "ACLOCAL_DIR",
+    "ACLOCAL_HOST_DIR",
+    "BR_CCACHE_INITIAL_SETUP",
+    "BR_NO_CHECK_HASH_FOR",
+    "LINUX_POST_PATCH_HOOKS",
+    "LINUX_TOOLS",
+    "LUA_RUN",
+    "MKFS_JFFS2",
+    "MKIMAGE_ARCH",
+    "PKG_CONFIG_HOST_BINARY",
+    "TARGET_FINALIZE_HOOKS",
+    "XTENSA_CORE_NAME"]))
+PACKAGE_NAME = re.compile("/([^/]+)\.mk")
+VARIABLE = re.compile("^([A-Z0-9_]+_[A-Z0-9_]+)\s*(\+|)=")
+
+
+def check_typo_in_package_variable(
+        fname, args, lineno=0, text=None, start=False, end=False):
+    if start:
+        package = PACKAGE_NAME.search(fname).group(1).replace("-", "_").upper()
+        # linux tools do not use LINUX_TOOL_ prefix for variables
+        package = package.replace("LINUX_TOOL_", "")
+        check_typo_in_package_variable.package = package
+        check_typo_in_package_variable.REGEX = re.compile(
+            "^(HOST_)?({}_[A-Z0-9_]+)".format(package))
+        return
+    if end:
+        return
+
+    m = VARIABLE.search(text)
+    if m is None:
+        return
+
+    variable = m.group(1)
+    if ALLOWED.match(variable):
+        return
+    if check_typo_in_package_variable.REGEX.search(text) is None:
+        return ["{}:{}: possible typo: {} -> *{}*"
+                .format(fname, lineno, variable,
+                        check_typo_in_package_variable.package),
+                text]
+
+
 DEFAULT_AUTOTOOLS_FLAG = re.compile("^.*{}".format("|".join([
     "_AUTORECONF\s*=\s*NO",
     "_LIBTOOL_PATCH\s*=\s*YES"])))
